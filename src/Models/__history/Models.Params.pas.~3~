@@ -1,0 +1,46 @@
+unit Models.Params;
+
+interface
+
+uses
+  System.SysUtils, System.Classes;
+
+type
+  TDMParams = class(TDataModule)
+    procedure DataModuleCreate(Sender: TObject);
+  private
+    FPort: integer;
+    FDllConexao32x: string;
+    FDatabase: string;
+    FPassword: string;
+    FDllConexao64x: string;
+    FUserName: string;
+    FServer: string;
+  public
+    property UserName:      string  read FUserName      write FUserName;
+    property Password:      string  read FPassword      write FPassword;
+    property Database:      string  read FDatabase      write FDatabase;
+    property Server:        string  read FServer        write FServer;
+    property DllConexao32x: string  read FDllConexao32x write FDllConexao32x;
+    property DllConexao64x: string  read FDllConexao64x write FDllConexao64x;
+    property Port:          integer read FPort          write FPort;
+  end;
+
+var
+  DMParams: TDMParams;
+
+implementation
+
+uses
+  Controllers.ConfigINI;
+
+{%CLASSGROUP 'Vcl.Controls.TControl'}
+
+{$R *.dfm}
+
+procedure TDMParams.DataModuleCreate(Sender: TObject);
+begin
+  TConfigINI.New;
+end;
+
+end.

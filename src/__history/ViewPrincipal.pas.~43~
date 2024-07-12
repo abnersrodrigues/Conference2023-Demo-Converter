@@ -1,0 +1,79 @@
+unit ViewPrincipal;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, FireDAC.Stan.Intf, FireDAC.Stan.Option,
+  FireDAC.Stan.Error, FireDAC.UI.Intf, FireDAC.Phys.Intf, FireDAC.Stan.Def,
+  FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Phys, FireDAC.Phys.MSSQL,
+  FireDAC.Phys.MSSQLDef, FireDAC.VCLUI.Wait, FireDAC.Stan.Param, FireDAC.DatS,
+  FireDAC.DApt.Intf, FireDAC.DApt, Data.DB, FireDAC.Comp.DataSet,
+  FireDAC.Comp.Client, Vcl.StdCtrls, FireDAC.Phys.SQLite,
+  FireDAC.Phys.SQLiteDef, FireDAC.Stan.ExprFuncs, Filectrl,
+  FireDAC.Phys.SQLiteWrapper.Stat, Convert4Delphi, FireDAC.Comp.BatchMove.SQL,
+  FireDAC.Comp.BatchMove, FireDAC.Comp.BatchMove.DataSet, FireDAC.Comp.UI;
+
+type
+  TForm1 = class(TForm)
+    ConexaoSQLServer: TFDConnection;
+    QryExport: TFDQuery;
+    Button1: TButton;
+    Button2: TButton;
+    QryImport: TFDQuery;
+    Button3: TButton;
+    Button4: TButton;
+    procedure Button1Click(Sender: TObject);
+    procedure Button2Click(Sender: TObject);
+    procedure Button3Click(Sender: TObject);
+    procedure Button4Click(Sender: TObject);
+  private
+
+  public
+    { Public declarations }
+  end;
+
+var
+  Form1: TForm1;
+
+implementation
+
+{$R *.dfm}
+
+procedure TForm1.Button1Click(Sender: TObject);
+Var
+  xCaminho: String;
+begin
+  SelectDirectory('Selecione caminho da exportação', '', xCaminho);
+
+  //xCaminho := ExtractFilePath(ParamStr(0)) + 'teste.txt';
+
+  QryExport.SQL.Text := 'Select * from tb_produtos_servicos';
+  QryExport.Open();
+  QryExport.FetchAll;
+  TConverter4Delphi.New.Exportar(QryExport, xCaminho);
+end;
+
+procedure TForm1.Button2Click(Sender: TObject);
+begin
+  ConexaoSQLServer.Connected := true;
+end;
+
+procedure TForm1.Button3Click(Sender: TObject);
+Var
+  xCaminho: String;
+begin
+  SelectDirectory('Selecione caminho da exportação', '', xCaminho);
+  //xCaminho := 'S:\Projetos\Conferencia2023\Tabela_NCM_2022.csv';
+
+  QryImport.Open();
+  QryImport.FetchAll;
+  TConverter4Delphi.New.Importar(QryImport, xCaminho);
+end;
+
+procedure TForm1.Button4Click(Sender: TObject);
+begin
+  TConverter4Delphi.New.TabelaTabela(ConexaoSQLServer, ConexaoSQLServer, 'tncm2', 'tncm');
+end;
+
+end.

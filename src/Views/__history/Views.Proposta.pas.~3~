@@ -1,0 +1,170 @@
+unit Views.Proposta;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, System.UITypes, FireDAC.Stan.Intf,
+  FireDAC.Stan.Option, FireDAC.Stan.Param, FireDAC.Stan.Error, FireDAC.DatS,
+  FireDAC.Phys.Intf, FireDAC.DApt.Intf, FireDAC.Stan.Async, FireDAC.DApt,
+  Data.DB, FireDAC.Comp.DataSet, FireDAC.Comp.Client, Vcl.StdCtrls,
+  Vcl.FileCtrl, Controllers.Interfaces, Vcl.ExtCtrls;
+
+type
+  TViewsProposta = class(TForm)
+    btn_exportar: TButton;
+    btn_importar: TButton;
+    btn_converter: TButton;
+    LabeledEdit1: TLabeledEdit;
+    LabeledEdit2: TLabeledEdit;
+    edit_tempo_execucao: TLabeledEdit;
+    procedure btn_exportarClick(Sender: TObject);
+    procedure btn_importarClick(Sender: TObject);
+    procedure btn_converterClick(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+
+
+  private
+    procedure SetDataHoraInicial;
+    procedure SetDataHoraFinal;
+
+  public
+    FDataInicial, FDataFinal: TDateTime;
+    FOpen: TOpenDialog;
+  end;
+
+function SelecionaCaminho(ANomeArquivo: String): String;
+
+var
+  ViewsProposta: TViewsProposta;
+  FCaminho: String;
+
+implementation
+
+uses
+  Convert4Delphi, Models.Conexao, Models.Querys, System.Threading;
+
+{$R *.dfm}
+
+procedure TViewsProposta.btn_exportarClick(Sender: TObject);
+begin
+  // Inicio da rotina ..
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+    FQryE: iQuerys;
+  Begin
+    SetDataHoraInicial;
+    SelecionaCaminho('Exportacao.xls');
+
+    FConexao := TModelConexao.New('MSSQL');
+
+    FQryE := TModelQuerys.New(FConexao)
+                         .Get('Select * from TB_NCMS');
+
+    TConverter4Delphi.New.Exportar(TModelQuerys(FQryE).DataSet, FCaminho);
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+      // Fim.
+    End);
+  End);
+end;
+
+procedure TViewsProposta.btn_importarClick(Sender: TObject);
+begin
+  if (FOpen.Execute) then
+    begin
+       FCaminho := FOpen.FileName;
+    end;
+
+  // Inicio da rotina ..
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+    FQryI: iQuerys;
+  Begin
+    SetDataHoraInicial;
+
+    FConexao := TModelConexao.New('MSSQL');
+
+    FQryI := TModelQuerys.New(FConexao)
+                         .Get('Select * from TB_NCMS2');
+
+    TConverter4Delphi.New.Importar(TModelQuerys(FQryI).DataSet, FCaminho);
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+      // Fim.
+    End);
+  End);
+end;
+
+procedure TViewsProposta.FormCreate(Sender: TObject);
+begin
+  FOpen := TOpenDialog.Create(nil);
+end;
+
+procedure TViewsProposta.FormDestroy(Sender: TObject);
+begin
+  FOpen.Free;
+end;
+
+procedure TViewsProposta.btn_converterClick(Sender: TObject);
+begin
+  // Inicio da rotina ..
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+  Begin
+    SetDataHoraInicial;
+
+    FConexao := TModelConexao.New('MSSQL');
+    TConverter4Delphi.New.TabelaTabela(TFDConnection(FConexao.Conexao), TFDConnection(FConexao.Conexao), 'tb_ncms', 'tb_ncms1');
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+      // Fim.
+    End);
+  End);
+end;
+
+function SelecionaCaminho(ANomeArquivo: String): String;
+Begin
+  Try
+    SelectDirectory('Selecione caminho da exportação', '', FCaminho);
+    FCaminho := FCaminho + '\' + ANomeArquivo;
+
+    if FileExists(FCaminho) then
+      Begin
+        if MessageDlg('Arquivo já existe e será apagado! '+ #13 +'Deseja prosseguir?', mtConfirmation,
+          [mbYes, mbNo], 0) = mrYes then
+          begin
+             DeleteFile(FCaminho);
+          end;
+      End;
+
+  Finally
+    Result := FCaminho;
+  End;
+End;
+
+procedure TViewsProposta.SetDataHoraInicial;
+Begin
+  FDataInicial := Now();
+  LabeledEdit1.Text := FormatDateTime('HH:MM:SS', FDataInicial);
+End;
+
+procedure TViewsProposta.SetDataHoraFinal;
+Begin
+  FDataFinal := Now();
+  LabeledEdit2.Text := FormatDateTime('HH:MM:SS', FDataFinal);
+
+  edit_tempo_execucao.Text := TimeToStr(FDataFinal-FDataInicial);
+End;
+
+end.

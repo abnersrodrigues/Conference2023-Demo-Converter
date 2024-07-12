@@ -1,0 +1,16 @@
+unit Controllers.Interfaces;
+
+interface
+
+uses
+  Data.DB;
+
+Type
+
+  iConexao = interface
+    function Conexao : TCustomConnection;
+  end;
+
+implementation
+
+end.

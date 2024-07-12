@@ -1,0 +1,141 @@
+unit Views.Principal;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, System.UITypes, FireDAC.Stan.Intf,
+  FireDAC.Stan.Option, FireDAC.Stan.Param, FireDAC.Stan.Error, FireDAC.DatS,
+  FireDAC.Phys.Intf, FireDAC.DApt.Intf, FireDAC.Stan.Async, FireDAC.DApt,
+  Data.DB, FireDAC.Comp.DataSet, FireDAC.Comp.Client, Vcl.StdCtrls,
+  Vcl.FileCtrl, Controllers.Interfaces, Vcl.ExtCtrls;
+
+type
+  TViewsPrincipal = class(TForm)
+    btn_exportar: TButton;
+    btn_importar: TButton;
+    btn_converter: TButton;
+    LabeledEdit1: TLabeledEdit;
+    LabeledEdit2: TLabeledEdit;
+    edit_tempo_execucao: TLabeledEdit;
+    procedure btn_exportarClick(Sender: TObject);
+    procedure btn_importarClick(Sender: TObject);
+    procedure btn_converterClick(Sender: TObject);
+
+
+  private
+    procedure SetDataHoraInicial;
+    procedure SetDataHoraFinal;
+
+  public
+    FDataInicial, FDataFinal: TDateTime;
+  end;
+
+function SelecionaCaminho(ANomeArquivo: String): String;
+
+var
+  ViewsPrincipal: TViewsPrincipal;
+  FCaminho: String;
+  FOpen: TOpenDialog;
+
+implementation
+
+uses
+  Convert4Delphi, Models.Conexao, Models.Querys, System.Threading;
+
+{$R *.dfm}
+
+procedure TViewsPrincipal.btn_exportarClick(Sender: TObject);
+begin
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+    FQryE: iQuerys;
+  Begin
+    SetDataHoraInicial;
+    SelecionaCaminho('Exportacao.txt');
+
+    FConexao := TModelConexao.New('MSSQL');
+
+    FQryE := TModelQuerys.New(FConexao)
+                         .Get('Select * from TB_NCMS2');
+
+    TConverter4Delphi.New.Exportar(TModelQuerys(FQryE).DataSet, FCaminho);
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+    End);
+  End);
+end;
+
+procedure TViewsPrincipal.btn_importarClick(Sender: TObject);
+begin
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+    FQryI: iQuerys;
+  Begin
+    SetDataHoraInicial;
+
+    FOpen := TOpenDialog.Create(nil);
+    if (FOpen.Execute) then
+      begin
+         FCaminho := FOpen.FileName;
+      end;
+
+    FConexao := TModelConexao.New('MSSQL');
+
+    FQryI := TModelQuerys.New(FConexao)
+                         .Get('Select * from TB_NCMS2');
+
+    TConverter4Delphi.New.Importar(TModelQuerys(FQryI).DataSet, FCaminho);
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+      FOpen.Free;
+    End);
+  End);
+end;
+
+procedure TViewsPrincipal.btn_converterClick(Sender: TObject);
+begin
+  TConverter4Delphi.New.TabelaTabela(nil, nil, 'tncm2', 'tncm');
+end;
+
+function SelecionaCaminho(ANomeArquivo: String): String;
+Begin
+  Try
+    SelectDirectory('Selecione caminho da exportação', '', FCaminho);
+    FCaminho := FCaminho + '\' + ANomeArquivo;
+
+    if FileExists(FCaminho) then
+      Begin
+        if MessageDlg('Arquivo já existe e será apagado! '+ #13 +'Deseja prosseguir?', mtConfirmation,
+          [mbYes, mbNo], 0) = mrYes then
+          begin
+             DeleteFile(FCaminho);
+          end;
+      End;
+
+  Finally
+    Result := FCaminho;
+  End;
+End;
+
+procedure TViewsPrincipal.SetDataHoraInicial;
+Begin
+  FDataInicial := Now();
+  LabeledEdit1.Text := FormatDateTime('HH:MM:SS', FDataInicial);
+End;
+
+procedure TViewsPrincipal.SetDataHoraFinal;
+Begin
+  FDataFinal := Now();
+  LabeledEdit2.Text := FormatDateTime('HH:MM:SS', FDataFinal);
+
+  edit_tempo_execucao.Text := TimeToStr(FDataFinal-FDataInicial);
+End;
+
+end.

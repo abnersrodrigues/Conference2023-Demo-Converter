@@ -1,0 +1,35 @@
+unit Controllers.Utils;
+
+interface
+
+uses
+  System.SysUtils, Vcl.ExtCtrls;
+
+  procedure SetDataHoraInicial(FDataInicio: TDateTime; FEditInicio: TLabeledEdit);
+  procedure SetDataHoraFinal(FDataInicio, FDataFim: TDateTime; FEditFim, FEditExecucao: TLabeledEdit);
+  procedure ZeraContador(FEditInicio, FEditFim, FEditExecucao: TLabeledEdit);
+
+implementation
+
+procedure SetDataHoraInicial(FDataInicio: TDateTime; FEditInicio: TLabeledEdit);
+Begin
+  FDataInicio := Now();
+  TLabeledEdit(FEditInicio).Text := FormatDateTime('HH:MM:SS', FDataInicio);
+End;
+
+procedure SetDataHoraFinal(FDataInicio, FDataFim: TDateTime; FEditFim, FEditExecucao: TLabeledEdit);
+Begin
+  FDataFim := Now();
+  TLabeledEdit(FEditFim).Text := FormatDateTime('HH:MM:SS', FDataFim);
+
+  TLabeledEdit(FEditExecucao).Text := TimeToStr(FDataFim-FDataInicio);
+End;
+
+procedure ZeraContador(FEditInicio, FEditFim, FEditExecucao: TLabeledEdit);
+Begin
+  TLabeledEdit(FEditInicio).Text   := EmptyStr;
+  TLabeledEdit(FEditFim).Text      := EmptyStr;
+  TLabeledEdit(FEditExecucao).Text := EmptyStr;
+End;
+
+end.

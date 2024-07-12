@@ -1,0 +1,85 @@
+object Form1: TForm1
+  Left = 0
+  Top = 0
+  Caption = 'Form1'
+  ClientHeight = 517
+  ClientWidth = 618
+  Color = clBtnFace
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
+  OldCreateOrder = False
+  PixelsPerInch = 96
+  TextHeight = 13
+  object Button1: TButton
+    Left = 56
+    Top = 96
+    Width = 75
+    Height = 25
+    Caption = 'EXPORTAR'
+    TabOrder = 0
+    OnClick = Button1Click
+  end
+  object Button2: TButton
+    Left = 56
+    Top = 56
+    Width = 75
+    Height = 25
+    Caption = 'CONECTAR'
+    TabOrder = 1
+    OnClick = Button2Click
+  end
+  object Button3: TButton
+    Left = 56
+    Top = 136
+    Width = 75
+    Height = 25
+    Caption = 'IMPORTAR'
+    TabOrder = 2
+    OnClick = Button3Click
+  end
+  object Button4: TButton
+    Left = 56
+    Top = 176
+    Width = 75
+    Height = 25
+    Caption = 'CONVERTER'
+    TabOrder = 3
+    OnClick = Button4Click
+  end
+  object ConexaoSQLServer: TFDConnection
+    Params.Strings = (
+      'Database=AdventureWorks2019'
+      'User_Name=sa'
+      'Password=@#dbg.db#@'
+      'Server=localhost\DEBUGGING'
+      'DriverID=MSSQL')
+    FetchOptions.AssignedValues = [evRowsetSize, evAutoFetchAll]
+    FetchOptions.RowsetSize = 10000
+    LoginPrompt = False
+    Left = 344
+    Top = 72
+  end
+  object QryExport: TFDQuery
+    Connection = ConexaoSQLServer
+    SQL.Strings = (
+      'Select * from TB_MOBILE')
+    Left = 344
+    Top = 144
+  end
+  object QryImport: TFDQuery
+    Connection = ConexaoSQLServer
+    SQL.Strings = (
+      'SELECT * FROM tncm')
+    Left = 432
+    Top = 144
+  end
+  object FDBatchMove1: TFDBatchMove
+    Mappings = <>
+    LogFileName = 'Data.log'
+    Left = 200
+    Top = 344
+  end
+end

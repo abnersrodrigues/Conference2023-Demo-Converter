@@ -1,0 +1,23 @@
+unit Controllers.Interfaces;
+
+interface
+
+uses
+  Data.DB, System.IniFiles;
+
+Type
+  iConexao = interface
+    function Conexao : TCustomConnection;
+  end;
+
+  iConfigINI = interface
+    function LerIni: TiniFile;
+  end;
+
+  iQuerys = interface
+
+  end;
+
+implementation
+
+end.

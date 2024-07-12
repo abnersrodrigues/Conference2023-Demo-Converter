@@ -1,0 +1,77 @@
+unit Views.Metodo3;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, System.Threading,
+  Vcl.ExtCtrls;
+
+type
+  TForm2 = class(TForm)
+    Button1: TButton;
+    edt_inicio: TLabeledEdit;
+    edt_fim: TLabeledEdit;
+    edt_tempo_execucao: TLabeledEdit;
+    procedure Button1Click(Sender: TObject);
+  private
+    procedure SetDataHoraFinal;
+    procedure ZeraContador;
+    procedure SetDataHoraInicial;
+    { Private declarations }
+  public
+    FDataInicial, FDataFinal: TDateTime;
+  end;
+
+var
+  Form2: TForm2;
+
+implementation
+
+uses
+  Convert4Delphi, Controllers.Interfaces, Models.Conexao, FireDAC.Comp.Client;
+
+{$R *.dfm}
+
+procedure TForm2.Button1Click(Sender: TObject);
+begin
+  // Inicio da rotina ..
+  TTask.Run(procedure
+  Var
+    FConexao : iConexao;
+  Begin
+    SetDataHoraInicial;
+
+    FConexao := TModelConexao.New('MSSQL');
+    TConverter4Delphi.New.TabelaTabela(TFDConnection(FConexao.Conexao), TFDConnection(FConexao.Conexao), 'tb_ncms', 'tb_ncms2');
+
+    TThread.Synchronize(TThread.CurrentThread, procedure
+    Begin
+      SetDataHoraFinal;
+      // Fim.
+    End);
+  End);
+end;
+
+procedure TForm2.SetDataHoraInicial;
+Begin
+  FDataInicial := Now();
+  edt_inicio.Text := FormatDateTime('HH:MM:SS', FDataInicial);
+End;
+
+procedure TForm2.SetDataHoraFinal;
+Begin
+  FDataFinal := Now();
+  edt_fim.Text := FormatDateTime('HH:MM:SS', FDataFinal);
+
+  edt_tempo_execucao.Text := TimeToStr(FDataFinal-FDataInicial);
+End;
+
+procedure TForm2.ZeraContador;
+Begin
+  edt_inicio.Text         := EmptyStr;
+  edt_fim.Text            := EmptyStr;
+  edt_tempo_execucao.Text := EmptyStr;
+End;
+
+end.

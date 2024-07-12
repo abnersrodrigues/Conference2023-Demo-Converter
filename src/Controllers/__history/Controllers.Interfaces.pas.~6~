@@ -1,0 +1,23 @@
+unit Controllers.Interfaces;
+
+interface
+
+uses
+  Data.DB;
+
+Type
+  iParamsBD = interface
+
+  end;
+
+  iConexao = interface
+    function Conexao : TCustomConnection;
+  end;
+
+  iConfigINI = interface
+    function LerIni: Boolean;
+  end;
+
+implementation
+
+end.

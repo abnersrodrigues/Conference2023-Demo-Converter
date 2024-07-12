@@ -1,0 +1,121 @@
+unit Controllers.ConfigINI;
+
+interface
+
+Uses
+  System.SysUtils, Vcl.Dialogs, System.IniFiles,
+  Vcl.Forms, Controllers.Interfaces, Models.Params;
+
+Type
+
+  TConfigINI = class(TInterfacedObject, iConfigINI)
+    private
+      function PastaDll: Boolean;
+      function GravarIni: Boolean;
+    public
+      Constructor Create;
+      Destructor Destroy; Override;
+      class function New: iConfigINI;
+      function LerIni: Boolean;
+  end;
+
+implementation
+
+uses
+  System.Classes;
+
+Constructor TConfigINI.Create;
+begin
+  PastaDll;
+  if not FileExists(ExtractFilePath(ParamStr(0))+'Config.ini') then
+    GravarIni;
+
+  LerIni;
+end;
+
+function TConfigINI.PastaDll:Boolean;
+Begin
+  Result := true;
+  {$IFDEF WIN32}
+    if not DirectoryExists(ExtractFilePath(ParamStr(0)) + '\dll32x') then
+      Begin
+        CreateDir(ExtractFilePath(ParamStr(0)) + '\dll32x');
+      End;
+  {$ENDIF$}
+
+  {$IFDEF WIN64}
+    if not DirectoryExists(ExtractFilePath(ParamStr(0)) + '\dll64x') then
+      Begin
+        CreateDir(ExtractFilePath(ParamStr(0)) + '\dll64x');
+      End;
+  {$ENDIF}
+End;
+
+destructor TConfigINI.Destroy;
+begin
+
+  inherited;
+end;
+
+class function TConfigINI.New: iConfigINI;
+begin
+  Result := Self.Create;
+end;
+
+function TConfigINI.LerIni: Boolean;
+Var
+  IniFile : String;
+  Ini     : TiniFile;
+Begin
+  try
+    IniFile := ExtractFilePath(ParamStr(0))+'Config.ini';
+    Ini     := TIniFile.Create(IniFile);
+
+    try
+      with Ini do
+        Begin
+          DMParams.UserName        := ReadString('BancoDados',     'User_Name',        DMParams.UserName);
+          DMParams.Password        := ReadString('BancoDados',     'Password',         DMParams.Password);
+          DMParams.Database        := ReadString('BancoDados',     'Database',         DMParams.Database);;
+          DMParams.Server          := ReadString('BancoDados',     'Server',           DMParams.Server);
+          DMParams.DllConexao32x   := ReadString('BancoDados',     'CaminhoDll32x',    DMParams.DllConexao32x);
+          DMParams.DllConexao64x   := ReadString('BancoDados',     'CaminhoDll64x',    DMParams.DllConexao64x);
+          DMParams.Port            := ReadInteger('BancoDados',    'Port',             DMParams.Port);
+        End;
+    finally
+      Result := true;
+      Ini.Free;
+    end;
+  Except
+    Result := false;
+  end;
+End;
+
+function TConfigINI.GravarIni: Boolean;
+Var
+  IniFile     : String;
+  xStringList : TStringList;
+Begin
+  IniFile := ExtractFilePath(ParamStr(0))+'Config.ini';
+  xStringList := TStringList.Create;
+  try
+    With xStringList do
+      Begin
+        Add('[BancoDados]');
+        Add('Database='           + DMParams.Database);
+        Add('User_Name='          + DMParams.UserName);
+        Add('Password='           + DMParams.Password);
+        Add('Port='               + DMParams.Port.ToString);
+        Add('Server='             + DMParams.Server);
+        Add('CaminhoDll32x='      + DMParams.DllConexao32x);
+        Add('CaminhoDll64x='      + DMParams.DllConexao64x);
+      End;
+    xStringList.SaveToFile(IniFile);
+  finally
+    xStringList.Free;
+    Result := true;
+  end;
+
+End;
+
+end.

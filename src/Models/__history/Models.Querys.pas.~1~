@@ -1,0 +1,1323 @@
+unit GRV.APIPlacas.Model.Querys;
+
+interface
+
+Uses
+  System.SysUtils, Vcl.Dialogs, System.Types, StrUtils, FireDAC.Phys.Intf, System.Classes,
+  FireDAC.Stan.Intf,FireDAC.Stan.Option, FireDAC.Stan.Error, FireDAC.UI.Intf, System.Threading,
+  FireDAC.Stan.Def, FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Phys,
+  FireDAC.VCLUI.Wait, Data.DB, FireDAC.Comp.Client, FireDAC.Phys.SQLite,
+  FireDAC.Phys.SQLiteDef, FireDAC.Stan.ExprFuncs, FireDAC.Stan.Param,
+  FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.DApt, FireDAC.Comp.DataSet, System.JSON,
+  DataSet.Serialize, GRV.APIPlacas.Interfaces, GRV.APIPlacas.Model.Conexao,
+  uRegisterLog, GRV.APIPlacas.Model.Principal, GRV.APIPlacas.Controller.APIExterna.Oficial,
+  GRV.APIPlacas.Controller.APIExterna.StandBy, Horse, GRV.APIPlacas.Utils, DateUtils;
+
+Type
+  TModelQuerys = class(TInterfacedObject, iQuerys)
+
+    private
+
+      FParent     : iConexao;
+      FQry        : TFDQuery;
+
+      FOrigem     : String;
+      FPlacaSecundaria
+                  : String;
+
+      function AddPlacasDados(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; id: string): Boolean;
+      function AddPlacasExtra(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; id: string): Boolean;
+      function AddPlacasPrincipal(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; out id: string): Boolean;
+
+    public
+
+
+
+      constructor Create(Parent : iConexao);
+      destructor Destroy; override;
+      class function New (Parent : iConexao): iQuerys;
+
+      function AddPlaca(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; xOrigem, xPlacaSecundaria:String): boolean;
+      function AddLogConsultas(xErroStatusCode: Integer; xErroDescricao, xAPIExterna, xPlaca: String): iQuerys;
+
+      function AddLogChupaCabra(xPlaca: String): iQuerys;
+
+      function GetExistePlaca(xPlaca:string; out xIdPlaca:string): Integer;
+
+      function GetVerificaAtualizacao(sPlaca: string): Boolean;
+      function GetPlacaPrefixo: String;
+      function GetPlacasVazias: iQuerys;
+      function GetQtdePlacasNovas: String;
+      function GetConsultasAPI: String;
+
+      function GetMontarRespostaWhattsApp(xIDPlaca: Integer): String;
+      function GetMontarRespostaApontaHora(xIDPlaca: Integer): String;
+
+      function GetQtdeConsultasStandBy: Integer;
+
+      function DeleteExistePlaca(sPlaca, sPlacaSecundaria:string): Boolean;
+
+      function DataSet : TDataSet;
+
+      function ValidarCampos: Boolean;
+
+  end;
+
+implementation
+
+constructor TModelQuerys.Create(Parent: iConexao);
+begin
+  FParent := Parent;
+
+  FQry := TFDQuery.Create(nil);
+
+  if not Assigned(FParent) then
+    FParent := TModelConexao.New;
+
+  FQry.Connection := TFDConnection(FParent.Conexao);
+
+  ValidarCampos;
+end;
+
+function TModelQuerys.DataSet: TDataSet;
+begin
+  Result := FQry;
+end;
+
+destructor TModelQuerys.Destroy;
+begin
+  FreeAndNil(FQry);
+  //FreeAndNil(dmPrincipal);
+  inherited;
+end;
+
+class function TModelQuerys.New(Parent: iConexao): iQuerys;
+begin
+  Result := Self.Create(Parent);
+end;
+
+
+function TModelQuerys.GetExistePlaca(xPlaca:string; out xIdPlaca:string): Integer;
+Var
+  xPlacaSecundaria: String;
+Begin
+  try
+    xPlacaSecundaria := TUtils.New.MontaPlacaSecundaria(xPlaca);
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT id, placa, placa_alternativa FROM tab_placas');
+        SQL.Add('WHERE ( ( placa = :velha) OR ( placa_alternativa = :nova) ) or ( ( placa_alternativa = :velha) OR ( placa = :nova) )');
+          Params.ParamByName('nova').AsString   := xPlacaSecundaria; //sPlaca_Nova;
+          Params.ParamByName('velha').AsString  := xPlaca; //sPlaca_antiga;
+        Open;
+      End;
+    xIdPlaca := FQry.FieldByName('id').AsString;
+    Result := FQry.RecordCount;
+  Except
+    Result := 0;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetExistePlaca]');
+  end;
+End;
+
+function TModelQuerys.GetQtdePlacasNovas: String;
+Var
+  xJSONArray  : TJSONArray;
+  xJSONObj    : TJSONObject;
+Begin
+  xJSONArray := nil;
+  try
+    try
+      xJSONArray := TJSONArray.Create;
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('SELECT * FROM view_grafico1');
+
+          Open;
+          FQry.First;
+          if FQry.RecordCount <> 0 then
+            Begin
+              while not FQry.Eof do
+                Begin
+                  xJSONObj := TJSONObject.Create;
+                  xJSONObj.AddPair('DatasConsultas', FQry.FieldByName('DatasConsultas').AsString);
+                  xJSONObj.AddPair('Qtde', FQry.FieldByName('Qtde').AsString);
+                  xJSONArray.AddElement(xJSONObj);
+
+                  FQry.Next;
+                End;
+            End;
+        End;
+    finally
+      Result := xJSONArray.ToString;
+      xJSONArray.Free;
+    end;
+  Except
+    Result := '';
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.SetQtdePlacasCadastradas]');
+  end;
+End;
+
+function TModelQuerys.GetConsultasAPI: String;
+Var
+  xJSONArray  : TJSONArray;
+  xJSONObj    : TJSONObject;
+Begin
+  xJSONArray := nil;
+  try
+    try
+      xJSONArray := TJSONArray.Create;
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+
+          SQL.Add('SELECT * FROM view_grafico2 ORDER BY 1');
+
+          Open;
+          FQry.First;
+          if FQry.RecordCount <> 0 then
+            Begin
+              while not FQry.Eof do
+                Begin
+                  xJSONObj := TJSONObject.Create;
+                  xJSONObj.AddPair('api_externa', FQry.FieldByName('api_externa').AsString);
+                  xJSONObj.AddPair('Qtde', FQry.FieldByName('qtde').AsString);
+                  xJSONArray.AddElement(xJSONObj);
+
+                  FQry.Next;
+                End;
+            End;
+        End;
+    finally
+      Result := xJSONArray.ToString;
+      xJSONArray.Free;
+    end;
+  Except
+    Result := '';
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.SetQtdePlacasCadastradas]');
+  end;
+End;
+
+function TModelQuerys.GetPlacasVazias: iQuerys;
+Var
+  xStringList : TStringList;
+  i : Integer;
+Begin
+  try
+    Result := Self;
+
+    xStringList := TStringList.Create;
+    Try
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('SELECT id FROM tab_placas WHERE placa = ''''');
+          SQL.Add('UNION all');
+          SQL.Add('SELECT id_placa AS id FROM tab_placas_extra WHERE placa = ''''');
+          SQL.Add('limit 50');
+          Open;
+          if FQry.RecordCount <> 0 then
+            Begin
+              while not FQry.Eof do
+                Begin
+                  xStringList.Add(FQry.FieldByName('id').AsInteger.ToString);
+                  FQry.Next;
+                End;
+            End
+          else
+            exit;
+        End;
+
+      if xStringList.Count <> 0 then
+        Begin
+          for i := 0 to xStringList.Count - 1 do
+            Begin
+
+              with FQry do
+                Begin
+                  Close;
+                  SQL.Clear;
+                  SQL.Add('delete from tab_placas_fipe_dados WHERE id_placa = :id');
+                    Params.ParamByName('id').AsInteger   := xStringList.Strings[i].ToInteger;
+                  ExecSQL;
+                End;
+              with FQry do
+                Begin
+                  Close;
+                  SQL.Clear;
+                  SQL.Add('delete from tab_placas_extra WHERE id_placa = :id');
+                    Params.ParamByName('id').AsInteger   := xStringList.Strings[i].ToInteger;
+                  ExecSQL;
+                End;
+              with FQry do
+                Begin
+                  Close;
+                  SQL.Clear;
+                  SQL.Add('delete from tab_placas WHERE id = :id');
+                    Params.ParamByName('id').AsInteger   := xStringList.Strings[i].ToInteger;
+                  ExecSQL;
+                End;
+
+            End;
+
+        End;
+    Finally
+      xStringList.Free;
+    End;
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetPlacasVazias]');
+  end;
+End;
+
+function TModelQuerys.GetPlacaPrefixo: String;
+Var
+  xJson : TJSONObject;
+  xPrefixo, xQtde: String;
+Begin
+  try
+    xJson := TJSONObject.Create;
+
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT SUBSTRING(placa, 1, 3) AS prefixo, COUNT(*) AS total FROM tab_placas');
+        SQL.Add('where not SUBSTRING(placa, 1, 3) in (''GRV'', ''SAV'')'); // SAV devolve muita consulta invalida
+        SQL.Add('GROUP BY prefixo');
+        SQL.Add('HAVING COUNT(*) < 7000');
+        SQL.Add('ORDER BY total DESC');
+        SQL.Add('LIMIT 1');
+        Open;
+        xPrefixo := FQry.FieldByName('prefixo').AsString;
+      End;
+
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT qtde_dia FROM tab_log_consultas_chupa_cabra');
+        SQL.Add('WHERE TO_CHAR(data_consulta, ''YYYY-MM-DD'') = TO_CHAR(CURRENT_DATE, ''YYYY-MM-DD'')');
+        Open;
+        xQtde := FQry.FieldByName('qtde_dia').AsInteger.ToString;
+      End;
+
+    try
+
+      xJson.AddPair('prefixo', xPrefixo);
+      xJson.AddPair('qtde_dia', xQtde);
+
+      Result := xJson.ToString;
+
+    finally
+      xJson.Free;
+    end;
+
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TTModelQuerys.GetPlacaPrefixo]');
+  end;
+End;
+
+function TModelQuerys.DeleteExistePlaca(sPlaca, sPlacaSecundaria:string): Boolean;
+Var
+  sID   : string;
+  SLID  : TStringList;   // Guardar ID das Placas de retorno na consulta
+Begin
+  try
+    sID := '';
+
+    // consultando existencia placa
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+  //      SQL.Add('select * from tab_placas');
+  //      SQL.Add('where placa like :placa');
+  //        Params.ParamByName('placa').AsString  := '%' + sPlaca + '%';
+
+        SQL.Add('SELECT id FROM tab_placas');
+        SQL.Add('WHERE ( ( placa = :velha) OR ( placa_alternativa = :nova) ) or ( ( placa_alternativa = :velha) OR ( placa = :nova) )');
+          Params.ParamByName('nova').AsString   := sPlacaSecundaria; //sPlaca_Nova;
+          Params.ParamByName('velha').AsString  := sPlaca; //sPlaca_antiga;
+        Open;
+      End;
+
+    if FQry.RecordCount = 0 then
+      Begin
+        Result := false;
+        exit;
+      End
+    else
+      Begin
+        SLID      := TStringList.create;
+
+        // Populando StringList com ids
+        while not FQry.Eof do
+          Begin
+            SLID.Add(FQry.FieldByName('id').AsString);
+            FQry.Next;
+          End;
+
+        // Varrendo StringList
+        for var i := 0 to Pred(SLID.Count) do
+          Begin
+
+            sID := '';
+
+            // Guardando ID;
+            sID := SLID.Strings[i];
+
+            // delete dados
+            with FQry do
+              Begin
+                Close;
+                SQL.Clear;
+                SQL.Add('delete from tab_placas_fipe_dados WHERE id_placa = :sID');
+                  Params.ParamByName('sID').AsInteger := sid.ToInteger;
+                ExecSQL;
+              End;
+
+            // delete extra
+            with FQry do
+              Begin
+                Close;
+                SQL.Clear;
+                SQL.Add('delete from tab_placas_extra WHERE id_placa = :sID');
+                  Params.ParamByName('sID').AsInteger := sid.ToInteger;
+                ExecSQL;
+              End;
+
+            // delete principal
+            with FQry do
+              Begin
+                Close;
+                SQL.Clear;
+                SQL.Add('delete FROM tab_placas where id = :sID');
+                  Params.ParamByName('sID').AsInteger := sid.ToInteger;
+                ExecSQL;
+              End;
+
+          End;
+
+        Result := true;
+        SLID.Free;
+      End;
+  Except
+    Result := false;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.DeleteExistePlaca]');
+  end;
+End;
+
+function TModelQuerys.GetMontarRespostaApontaHora(xIDPlaca: Integer): String;
+Var
+  xGet : TJSONObject;
+begin
+  try
+    xGet := nil;
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT t2.municipio, t2.uf, t2.ano_fabricacao, '''' AS cmt, t1.cor, t2.peso_bruto_total, t1.placa, t2.chassi,');
+        SQL.Add('t2.motor, '''' AS potencia_cavalos, t2.carroceria, t2.cilindradas, t2.combustivel, t2.nacionalidade,');
+        SQL.Add('t2.caixa_cambio, '''' AS tipo_montagem, t2.tipo_carroceria, t2.tipo_veiculo, t2.eixo_traseiro_dif, t2.situacao_chassi,');
+        SQL.Add('t2.peso_bruto_total, t2.eixos, '''' as quantidade_passageiro, t1.modelo');
+        SQL.Add('FROM tab_placas t1');
+        SQL.Add('inner join tab_placas_extra t2 ON t2.id_placa = t1.id');
+        SQL.Add('WHERE t1.id = :id');
+        Params.ParamByName('id').asInteger := xIDPlaca;
+        Open;
+
+        try
+          xGet := TJSONObject.Create;
+          with xGet do
+            Begin
+              AddPair('municipio',               FQry.FieldByName('municipio').AsString);
+              AddPair('uf',                      FQry.FieldByName('uf').AsString);
+              AddPair('anoFabricacao',           FQry.FieldByName('ano_fabricacao').AsString);
+              AddPair('cmt',                     FQry.FieldByName('cmt').AsString);
+              AddPair('cor',                     FQry.FieldByName('cor').AsString);
+              AddPair('pbt',                     FQry.FieldByName('peso_bruto_total').AsString);
+              AddPair('placa',                   FQry.FieldByName('placa').AsString);
+              AddPair('numeroChassi',            FQry.FieldByName('chassi').AsString);
+              AddPair('numeroMotor',             FQry.FieldByName('motor').AsString);
+              AddPair('potenciaCavalos',         FQry.FieldByName('potencia_cavalos').AsString);
+              AddPair('carroceria',              FQry.FieldByName('carroceria').AsString);
+              AddPair('cilindradasCm3',          FQry.FieldByName('cilindradas').AsString);
+              AddPair('combustivel',             FQry.FieldByName('combustivel').AsString);
+              AddPair('procedencia',             FQry.FieldByName('nacionalidade').AsString);
+              AddPair('caixaCambio',             FQry.FieldByName('caixa_cambio').AsString);
+              AddPair('tipoMontagem',            FQry.FieldByName('tipo_montagem').AsString);
+              AddPair('tipoCarroceria',          FQry.FieldByName('tipo_carroceria').AsString);
+              AddPair('tipoVeiculo',             FQry.FieldByName('tipo_veiculo').AsString);
+              AddPair('eixoTraseiroDiferencial', FQry.FieldByName('eixo_traseiro_dif').AsString);
+              AddPair('situacaoChassi',          FQry.FieldByName('situacao_chassi').AsString);
+              AddPair('capacidadeCarga',         FQry.FieldByName('peso_bruto_total').AsString);
+              AddPair('quantidadeEixos',         FQry.FieldByName('eixos').AsString);
+              AddPair('quantidadePassageiros',   FQry.FieldByName('quantidade_passageiro').AsString);
+              AddPair('marcaModelo',             FQry.FieldByName('modelo').AsString);
+              AddPair('grvPesquisa',             'BDLocal');
+  //            case XOrigem.ToInteger() of
+  //            1: AddPair('grvPesquisa', 'APIOficial');
+  //            2: AddPair('grvPesquisa', 'APIStandBy');
+  //            3: AddPair('grvPesquisa', 'BDLocal');
+  //            4: AddPair('grvPesquisa', 'APIOficial/APIStandBy');
+  //            end;
+            End;
+
+          Result := xGet.ToString;
+
+        finally
+          xGet.Free;
+        end;
+      End;
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetMontarRespostaApontaHora]');
+  end;
+end;
+
+function TModelQuerys.GetMontarRespostaWhattsApp(xIDPlaca:Integer): String;
+Var
+  xGet : TJSONObject;
+begin
+  try
+    xGet := nil;
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT t1.placa, t1.marca, t1.modelo, t1.cor,');
+        SQL.Add('t2.tipo_veiculo, t2.especie, t2.chassi, t2.cap_maxima_tracao, t2.caixa_cambio,');
+        SQL.Add('t2.linha, t2.motor, t2.cilindradas, t2.eixos, t2.combustivel, t2.nacionalidade, t2.ano_modelo, t2.ano_fabricacao');
+        SQL.Add('FROM tab_placas t1');
+        SQL.Add('inner join tab_placas_extra t2 ON t2.id_placa = t1.id');
+        SQL.Add('WHERE t1.id = :id');
+        Params.ParamByName('id').asInteger := xIDPlaca;
+        Open;
+
+        Try
+          xGet := TJSONObject.Create;
+          With xGet do
+            Begin
+              AddPair('placa',             FQry.FieldByName('placa').AsString);
+              AddPair('marca',             FQry.FieldByName('marca').AsString);
+              AddPair('modelo',            FQry.FieldByName('modelo').AsString);
+              AddPair('cor',               FQry.FieldByName('cor').AsString);
+              AddPair('tipoVeiculo',       FQry.FieldByName('tipo_veiculo').AsString);
+              AddPair('especie',           FQry.FieldByName('especie').AsString);
+              AddPair('chassi',            FQry.FieldByName('chassi').AsString);
+              AddPair('capMaximaTracao',   FQry.FieldByName('cap_maxima_tracao').AsString);
+              AddPair('caixaDeCambio',     FQry.FieldByName('caixa_cambio').AsString);
+              AddPair('linha',             FQry.FieldByName('linha').AsString);
+              AddPair('motor',             FQry.FieldByName('motor').AsString);
+              AddPair('cilindradas',       FQry.FieldByName('cilindradas').AsString);
+              AddPair('eixos',             FQry.FieldByName('eixos').AsString);
+              AddPair('combustivel',       FQry.FieldByName('combustivel').AsString);
+              AddPair('nacionalidade',     FQry.FieldByName('nacionalidade').AsString);
+              AddPair('anoModelo',         FQry.FieldByName('ano_modelo').AsString);
+              AddPair('anoFabricacao',     FQry.FieldByName('ano_fabricacao').AsString);
+              AddPair('dataHoraConsulta',  FormatDateTime('dd/mm/yyyy hh:mm:ss', now()));
+              AddPair('grvPesquisa',       'BDLocal');
+  //            case xOrigem.ToInteger() of
+  //              1: AddPair('grvPesquisa', 'APIOficial');
+  //              2: AddPair('grvPesquisa', 'APIStandBy');
+  //              3: AddPair('grvPesquisa', 'BDLocal');
+  //              4: AddPair('grvPesquisa', 'APIOficial/APIStandBy');
+  //            end;
+            End;
+
+          Result := xGet.ToString;
+
+        Finally
+          xGet.Free;
+        End;
+      End;
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetMontarRespostaWhattsApp]');
+  end;
+end;
+{
+function TModelQuerys.GetPlaca(sPlaca, sPlacaSecundaria:string; out id:string):TJSONObject;
+Var
+  xJSon : TJSONObject;
+Begin
+  try
+    xJSon := nil;
+    try
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('select * from tab_placas');
+          SQL.Add('WHERE ( ( placa = :velha) OR ( placa_alternativa = :nova) ) or ( ( placa_alternativa = :velha) OR ( placa = :nova) )');
+            Params.ParamByName('nova').AsString   := sPlacaSecundaria; //sPlaca_Nova;
+            Params.ParamByName('velha').AsString  := sPlaca; //sPlaca_antiga;
+          Open;
+        End;
+      id := FQry.FieldByName('id').AsInteger.ToString;
+
+      xJSon := FQry.ToJSONObject;
+
+      Result := xJSon;
+    finally
+      xJSon.Free;
+    end;
+  Except
+    Result := nil;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetPlaca]');
+  end;
+End;
+}
+function TModelQuerys.GetQtdeConsultasStandBy:Integer;
+Begin
+  try
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+
+        SQL.Add('select distinct api_externa, count(api_externa) as qtde from tab_log_consultas');
+        SQL.Add('where ( TO_CHAR(erro_data_time, ''YYYY-MM-DD'') = TO_CHAR(CURRENT_DATE, ''YYYY-MM-DD''))');
+        SQL.Add('AND api_externa = ''StandBy''');
+        SQL.Add('group by api_externa');
+        SQL.Add('order by 1 desc');
+
+        Open;
+
+        if FQry.RecordCount = 0 then
+          Result := 0
+        else
+          Result := FQry.FieldByName('qtde').AsInteger;
+
+      End;
+  Except
+    Result := 0;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetQtdeConsultasStandBy]');
+  end;
+End;
+
+function TModelQuerys.GetVerificaAtualizacao(sPlaca:string):Boolean;
+Begin
+  try
+    Result := false;
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT');
+        SQL.Add('to_char(grv_data_cadastro, ''dd/mm/yyyy'') AS grv_data_cadastro,');
+        SQL.Add('to_char(grv_data_ult_atualizacao, ''dd/mm/yyyy'') AS grv_data_ult_atualizacao,');
+        SQL.Add('to_char(grv_data_ult_atualizacao + interval ''3 months'',  ''dd/mm/yyyy'') AS data_new_atualizacao');
+        SQL.Add('FROM tab_placas');
+        SQL.Add('where placa like :placa');
+          Params.ParamByName('placa').AsString  := '%' + sPlaca + '%';
+        Open;
+
+        if StrToDate(FQry.FieldByName('data_new_atualizacao').AsString) <= StrToDate(FormatDateTime('dd/mm/yyyy', now())) then
+          Begin
+            if DeleteExistePlaca(sPlaca, '') then
+              Result := true
+            else
+              Result := false;
+          End;
+      End;
+  Except
+    Result := true;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetVerificaAtualizacao]');
+  end;
+End;
+
+function TModelQuerys.ValidarCampos: Boolean;
+Begin
+  Result := True;
+  Try
+
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('SELECT table_name FROM information_schema.tables');
+          SQL.Add('WHERE table_schema = ''public'' AND TABLE_NAME = ''tab_log_consultas''');
+          Open;
+          if FQry.RecordCount = 0 then
+            Begin
+              with FQry do
+                Begin
+                  Close;
+                  SQL.Clear;
+                  SQL.Add('CREATE TABLE IF NOT EXISTS public.tab_log_consultas');
+                  SQL.Add('(');
+                  SQL.Add('id_log_consulta serial NOT NULL,');
+                  SQL.Add('api_externa text COLLATE pg_catalog."default" NOT NULL DEFAULT ''''::text,');
+                  SQL.Add('erro_status_code integer NOT NULL DEFAULT 0,');
+                  SQL.Add('erro_descricao text COLLATE pg_catalog."default" NOT NULL DEFAULT ''''::text,');
+                  SQL.Add('erro_data_time timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,');
+                  SQL.Add('CONSTRAINT tab_log_consultas_pkey PRIMARY KEY (id_log_consulta)');
+                  SQL.Add(')');
+                  ExecSQL;
+                End;
+            End;
+        End;
+
+  Except
+    Result := false;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.ValidarCampos]');
+  End;
+End;
+
+function TModelQuerys.AddLogChupaCabra(xPlaca: String): iQuerys;
+Var
+  xID   : Integer;
+  xQtde : Integer;
+begin
+  try
+    Result := Self;
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT * FROM tab_log_consultas_chupa_cabra');
+        SQL.Add('WHERE TO_CHAR(data_consulta, ''YYYY-MM-DD'') = TO_CHAR(CURRENT_DATE, ''YYYY-MM-DD'')');
+        Open;
+        if FQry.RecordCount = 0 then
+          Begin
+            Close;
+            SQL.Clear;
+
+            SQL.Add('INSERT into tab_log_consultas_chupa_cabra (data_consulta, qtde_dia, ultima_placa)');
+            SQL.Add('VALUES (:data_consulta, :qtde_dia, :ultima_placa)');
+              Params.ParamByName('data_consulta').AsDateTime  := Now();
+              Params.ParamByName('qtde_dia').AsInteger        := 1;
+              Params.ParamByName('ultima_placa').AsString     := xPlaca;
+            ExecSQL;
+          End
+        else
+          Begin
+            xID   := FQry.FieldByName('id').AsInteger;
+            xQtde := FQry.FieldByName('qtde_dia').AsInteger;
+
+            Close;
+            SQL.Clear;
+            SQL.Add('UPDATE tab_log_consultas_chupa_cabra');
+            SQL.Add('SET qtde_dia = :qtde_dia, ultima_placa = :ultima_placa');
+            SQL.Add('WHERE id = :id');
+              Params.ParamByName('qtde_dia').AsInteger      := xQtde + 1;
+              Params.ParamByName('ultima_placa').AsString   := xPlaca;
+              Params.ParamByName('id').AsInteger            := xID;
+            ExecSQL;
+          End;
+      End;
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.AddLogChupaCabra]');
+  end;
+end;
+
+function TModelQuerys.AddLogConsultas(xErroStatusCode: Integer; xErroDescricao, xAPIExterna, xPlaca: String): iQuerys;
+Begin
+  try
+    Result := Self;
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('INSERT INTO tab_log_consultas (api_externa, erro_status_code, erro_descricao, erro_data_time, placa)');
+        SQL.Add('VALUES (:api_externa, :erro_status_code, :erro_descricao, :erro_data_time, :placa);');
+          Params.ParamByName('api_externa').AsString        := xAPIExterna;
+          Params.ParamByName('erro_status_code').asInteger  := xErroStatusCode;
+          Params.ParamByName('erro_descricao').AsString     := xErroDescricao;
+          Params.ParamByName('erro_data_time').AsDateTime   := Now();
+          Params.ParamByName('placa').AsString              := xPlaca;
+        ExecSQL;
+      End;
+  Except
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.AddLogConsultas]');
+  end;
+End;
+{
+function TModelQuerys.GetPlacaExtra(id:string):TJSONObject;
+Var
+  xJSON : TJSONObject;
+Begin
+  try
+    xJSON := nil;
+    try
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('SELECT * FROM tab_placas_extra');
+          SQL.Add('WHERE id_placa = :id');
+            Params.ParamByName('id').asInteger  := id.toInteger;
+          Open;
+        End;
+      xJSON := FQry.ToJSONObject;
+      Result := xJSON;
+    finally
+      xJSON.Free;
+    end;
+  Except
+    Result := nil;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.GetPlacaExtra]');
+  end;
+End;
+}
+
+{$region 'Função Add Veiculos'}
+{function TModelQuerys.Add(AnoFabricacao, CaixaCambio, CapacidadeCarga, Carroceria,
+  CilindradasCm3, Cmt, Combustivel, Cor, EixoTraseiroDiferencial,
+  MarcaModelo, Municipio, NumeroChassi, NumeroMotor, Pbt, Placa,
+  PotenciaCavalos, Procedencia, QuantidadeEixos, QuantidadePassageiros,
+  SituacaoChassi, TipoCarroceria, TipoMontagem, TipoVeiculo,
+  Uf: String): boolean;
+Begin
+  try
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('insert into tab_veiculos');
+        SQL.Add('(AnoFabricacao, CaixaCambio, CapacidadeCarga, Carroceria, CilindradasCm3,');
+        SQL.Add('Cmt, Combustivel, Cor, eixotraseirodiferencial, MarcaModelo, Municipio,');
+        SQL.Add('NumeroChassi, NumeroMotor, Pbt, Placa, PotenciaCavalos, Procedencia, QuantidadeEixos,');
+        SQL.Add('QuantidadePassageiros, SituacaoChassi, TipoCarroceria, TipoMontagem, TipoVeiculo, Uf)');
+        SQL.Add('values');
+        SQL.Add('(:AnoFabricacao, :CaixaCambio, :CapacidadeCarga, :Carroceria, :CilindradasCm3,');
+        SQL.Add(':Cmt, :Combustivel, :Cor, :eixotraseirodiferencial, :MarcaModelo, :Municipio,');
+        SQL.Add(':NumeroChassi, :NumeroMotor, :Pbt, :Placa, :PotenciaCavalos, :Procedencia, :QuantidadeEixos,');
+        SQL.Add(':QuantidadePassageiros, :SituacaoChassi, :TipoCarroceria, :TipoMontagem, :TipoVeiculo, :Uf)');
+
+        Params.ParamByName('AnoFabricacao').value := AnoFabricacao;
+        Params.ParamByName('CaixaCambio').value := CaixaCambio;
+        Params.ParamByName('CapacidadeCarga').value := CapacidadeCarga;
+        Params.ParamByName('Carroceria').value := Carroceria;
+        Params.ParamByName('CilindradasCm3').value := CilindradasCm3;
+        Params.ParamByName('Cmt').value := Cmt;
+        Params.ParamByName('Combustivel').value := Combustivel;
+        Params.ParamByName('Cor').value := Cor;
+        Params.ParamByName('eixotraseirodiferencial').value := EixoTraseiroDiferencial;
+        Params.ParamByName('MarcaModelo').value := MarcaModelo;
+        Params.ParamByName('Municipio').value := Municipio;
+        Params.ParamByName('NumeroChassi').value := NumeroChassi;
+        Params.ParamByName('NumeroMotor').value := NumeroMotor;
+        Params.ParamByName('Pbt').value := Pbt;
+        Params.ParamByName('Placa').value := Placa;
+        Params.ParamByName('PotenciaCavalos').value := PotenciaCavalos;
+        Params.ParamByName('Procedencia').value := Procedencia;
+        Params.ParamByName('QuantidadeEixos').value := QuantidadeEixos;
+        Params.ParamByName('QuantidadePassageiros').value := QuantidadePassageiros;
+        Params.ParamByName('SituacaoChassi').value := SituacaoChassi;
+        Params.ParamByName('TipoCarroceria').value := TipoCarroceria;
+        Params.ParamByName('TipoMontagem').value := TipoMontagem;
+        Params.ParamByName('TipoVeiculo').value := TipoVeiculo;
+        Params.ParamByName('Uf').value := Uf;
+
+        ExecSQL;
+
+        Result := true;
+
+      End;
+  Except
+    Result := false;
+  end;
+End;  }
+{$endregion}
+
+//nova api -- Api Externa divide Json em 3 partes: 1-Principal, 2-Extra, 3-Dados Fipe
+{$region 'Função Add Placas'}
+function TModelQuerys.AddPlaca(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; xOrigem, xPlacaSecundaria:String): boolean;
+Var
+  id    : string;
+Begin
+  try
+    Result := true;
+
+    FOrigem := xOrigem;
+    FPlacaSecundaria
+            := xPlacaSecundaria;
+
+    if AddPlacasPrincipal(xRootOficial, xRootStandBy, id) then
+      Begin
+        AddPlacasExtra(xRootOficial, xRootStandBy, id);
+        AddPlacasDados(xRootOficial, xRootStandBy, id);
+      End;
+  Except
+    Result := false;
+    TRegisterLog.i.Log('Erro na Qry: [TModelQuerys.AddPlaca]');
+  end;
+End;
+
+function TModelQuerys.AddPlacasPrincipal(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; out id: string):Boolean;
+Begin
+  Try
+    Result := true;
+
+    //tabela principal
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('insert into tab_placas ');
+        SQL.Add('(marca, modelo, submodelo, cor, data, logo, placa, placa_alternativa, token, uf)');
+        SQL.Add('values');
+        SQL.Add('(:marca, :modelo, :submodelo, :cor, :data, :logo, :placa, :placa_alternativa, :token, :uf) RETURNING id');
+
+
+        if FOrigem = 'Oficial' then
+          Begin
+            Params.ParamByName('marca').value               := xRootOficial.MARCA; //dmPrincipal.temp_principal.FieldByName('MARCA').asString;
+            Params.ParamByName('modelo').value              := xRootOficial.MODELO; //dmPrincipal.temp_principal.FieldByName('MODELO').asString;
+            Params.ParamByName('submodelo').value           := xRootOficial.SUBMODELO; //dmPrincipal.temp_principal.FieldByName('SUBMODELO').asString;
+            Params.ParamByName('cor').value                 := xRootOficial.Cor; //dmPrincipal.temp_principal.FieldByName('cor').asString;
+            Params.ParamByName('data').value                := xRootOficial.Data; //dmPrincipal.temp_principal.FieldByName('data').asString;
+            Params.ParamByName('logo').value                := xRootOficial.Logo; //dmPrincipal.temp_principal.FieldByName('logo').asString;
+            Params.ParamByName('placa').value               := xRootOficial.Placa; //dmPrincipal.temp_principal.FieldByName('placa').asString;
+            Params.ParamByName('placa_alternativa').value   := xRootOficial.PlacaAlternativa; //dmPrincipal.temp_principal.FieldByName('placa_alternativa').asString;
+            Params.ParamByName('token').value               := xRootOficial.Token; //dmPrincipal.temp_principal.FieldByName('token').asString;
+            Params.ParamByName('uf').value                  := xRootOficial.Uf; //dmPrincipal.temp_principal.FieldByName('uf').asString;
+          End
+        else
+          Begin
+            Params.ParamByName('marca').value               := xRootStandBy.Data.Veiculo.MarcaModelo; //dmPrincipal.temp_principal.FieldByName('MARCA').asString;
+            Params.ParamByName('modelo').value              := xRootStandBy.Data.Veiculo.MarcaModelo; //dmPrincipal.temp_principal.FieldByName('MODELO').asString;
+            Params.ParamByName('submodelo').value           := xRootStandBy.Data.Veiculo.MarcaModelo; //dmPrincipal.temp_principal.FieldByName('SUBMODELO').asString;
+            Params.ParamByName('cor').value                 := xRootStandBy.Data.Veiculo.Cor; //dmPrincipal.temp_principal.FieldByName('cor').asString;
+            Params.ParamByName('data').value                := now(); //dmPrincipal.temp_principal.FieldByName('data').asString;
+            Params.ParamByName('logo').value                := ''; //dmPrincipal.temp_principal.FieldByName('logo').asString;
+            Params.ParamByName('placa').value               := xRootStandBy.Data.Veiculo.Placa; //dmPrincipal.temp_principal.FieldByName('placa').asString;
+            Params.ParamByName('placa_alternativa').value   := FPlacaSecundaria; //dmPrincipal.temp_principal.FieldByName('placa_alternativa').asString;
+            Params.ParamByName('token').value               := ''; //dmPrincipal.temp_principal.FieldByName('token').asString;
+            Params.ParamByName('uf').value                  := xRootStandBy.Data.Veiculo.Uf; //dmPrincipal.temp_principal.FieldByName('uf').asString;
+          End;
+
+        Open;
+
+        id := FieldByName('id').AsString;
+      End;
+  Except
+    Result := false;
+    {$WARNINGS OFF}
+    TRegisterLog.i.Log('Erro: Inserir'+ xRootOficial.Placa +' [TModelQuerys.AddPlacasPrincipal]');
+    {$WARNINGS ON}
+  end;
+
+End;
+
+
+function TModelQuerys.AddPlacasExtra(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; id: string):Boolean;
+Begin
+    try
+      //Tabela Extra
+      with FQry do
+        Begin
+          Close;
+          SQL.Clear;
+          SQL.Add('insert into tab_placas_extra ');
+          SQL.Add('(id_placa, ano_fabricacao, ano_modelo, caixa_cambio, cap_maxima_tracao, carroceria, chassi,');
+          SQL.Add('cilindradas, combustivel, di, eixo_traseiro_dif, eixos, especie, faturado, grupo, limite_restricao_trib,');
+          SQL.Add('linha, media_preco, modelo, motor, municipio, nacionalidade, peso_bruto_total, placa, placa_modelo_antigo,');
+          SQL.Add('placa_modelo_novo, registro_di, renavam, restricao_1, restricao_2, restricao_3, restricao_4,');
+          SQL.Add('s_especie, segmento, situacao_chassi, situacao_veiculo, sub_segmento, terceiro_eixo, tipo_carroceria,');
+          SQL.Add('tipo_doc_faturado, tipo_doc_importadora, tipo_doc_prop, tipo_veiculo, uf, uf_faturado, uf_placa, unidade_local_srf)');
+          SQL.Add('values');
+          SQL.Add('(:id_placa, :ano_fabricacao, :ano_modelo, :caixa_cambio, :cap_maxima_tracao, :carroceria, :chassi,');
+          SQL.Add(':cilindradas, :combustivel, :di, :eixo_traseiro_dif, :eixos, :especie, :faturado, :grupo, :limite_restricao_trib,');
+          SQL.Add(':linha, :media_preco, :modelo, :motor, :municipio, :nacionalidade, :peso_bruto_total, :placa, :placa_modelo_antigo,');
+          SQL.Add(':placa_modelo_novo, :registro_di, :renavam, :restricao_1, :restricao_2, :restricao_3, :restricao_4,');
+          SQL.Add(':s_especie, :segmento, :situacao_chassi, :situacao_veiculo, :sub_segmento, :terceiro_eixo, :tipo_carroceria,');
+          SQL.Add(':tipo_doc_faturado, :tipo_doc_importadora, :tipo_doc_prop, :tipo_veiculo, :uf, :uf_faturado, :uf_placa, :unidade_local_srf)');
+
+            if FOrigem = 'Oficial' then
+              Begin
+                Params.ParamByName('id_placa').AsInteger            := id.ToInteger;
+                Params.ParamByName('ano_fabricacao').value          := xRootOficial.Extra.AnoFabricacao; //dmPrincipal.temp_extra.FieldByName('ano_fabricacao').asString;
+                Params.ParamByName('ano_modelo').value              := xRootOficial.Extra.AnoModelo; //dmPrincipal.temp_extra.FieldByName('ano_modelo').asString;
+                Params.ParamByName('caixa_cambio').value            := xRootOficial.Extra.CaixaCambio; //dmPrincipal.temp_extra.FieldByName('caixa_cambio').asString;
+                Params.ParamByName('cap_maxima_tracao').value       := xRootOficial.Extra.CapMaximaTracao; // dmPrincipal.temp_extra.FieldByName('cap_maxima_tracao').asString;
+                Params.ParamByName('carroceria').value              := xRootOficial.Extra.Carroceria; //dmPrincipal.temp_extra.FieldByName('carroceria').asString;
+                Params.ParamByName('chassi').value                  := xRootOficial.Extra.Chassi; //dmPrincipal.temp_extra.FieldByName('chassi').asString;
+                Params.ParamByName('cilindradas').value             := xRootOficial.Extra.Cilindradas; //dmPrincipal.temp_extra.FieldByName('cilindradas').asString;
+                Params.ParamByName('combustivel').value             := xRootOficial.Extra.Combustivel; //dmPrincipal.temp_extra.FieldByName('combustivel').asString;
+                Params.ParamByName('di').value                      := xRootOficial.Extra.Di; //dmPrincipal.temp_extra.FieldByName('di').asString;
+                Params.ParamByName('eixo_traseiro_dif').value       := xRootOficial.Extra.EixoTraseiroDif; //dmPrincipal.temp_extra.FieldByName('eixo_traseiro_dif').asString;
+                Params.ParamByName('eixos').value                   := xRootOficial.Extra.Eixos; //dmPrincipal.temp_extra.FieldByName('eixos').asString;
+                Params.ParamByName('especie').value                 := xRootOficial.Extra.Especie; //dmPrincipal.temp_extra.FieldByName('especie').asString;
+                Params.ParamByName('faturado').value                := xRootOficial.Extra.Faturado; // dmPrincipal.temp_extra.FieldByName('faturado').asString;
+                Params.ParamByName('grupo').value                   := xRootOficial.Extra.Grupo;// dmPrincipal.temp_extra.FieldByName('grupo').asString;
+                Params.ParamByName('limite_restricao_trib').value   := xRootOficial.Extra.LimiteRestricaoTrib; // dmPrincipal.temp_extra.FieldByName('limite_restricao_trib').asString;
+                Params.ParamByName('linha').value                   := xRootOficial.Extra.Linha; // dmPrincipal.temp_extra.FieldByName('linha').asString;
+                Params.ParamByName('media_preco').value             := xRootOficial.Extra.MediaPreco; // dmPrincipal.temp_extra.FieldByName('media_preco').asString;
+                Params.ParamByName('modelo').value                  := xRootOficial.Extra.Modelo; //dmPrincipal.temp_extra.FieldByName('modelo').asString;
+                Params.ParamByName('motor').value                   := xRootOficial.Extra.Motor; //dmPrincipal.temp_extra.FieldByName('motor').asString;
+                Params.ParamByName('municipio').value               := xRootOficial.Extra.Municipio; //dmPrincipal.temp_extra.FieldByName('municipio').asString;
+                Params.ParamByName('nacionalidade').value           := xRootOficial.Extra.Nacionalidade; //dmPrincipal.temp_extra.FieldByName('nacionalidade').asString;
+                Params.ParamByName('peso_bruto_total').value        := xRootOficial.Extra.PesoBrutoTotal; //dmPrincipal.temp_extra.FieldByName('peso_bruto_total').asString;
+                Params.ParamByName('placa').value                   := xRootOficial.Extra.Placa; //dmPrincipal.temp_extra.FieldByName('placa').asString;
+                Params.ParamByName('placa_modelo_antigo').value     := xRootOficial.Extra.PlacaModeloAntigo; // dmPrincipal.temp_extra.FieldByName('placa_modelo_antigo').asString;
+                Params.ParamByName('placa_modelo_novo').value       := xRootOficial.Extra.PlacaModeloNovo; // dmPrincipal.temp_extra.FieldByName('placa_modelo_novo').asString;
+                Params.ParamByName('registro_di').value             := xRootOficial.Extra.RegistroDi; // dmPrincipal.temp_extra.FieldByName('registro_di').asString;
+                Params.ParamByName('renavam').value                 := xRootOficial.Extra.Renavam; // dmPrincipal.temp_extra.FieldByName('renavam').asString;
+                Params.ParamByName('restricao_1').value             := xRootOficial.Extra.Restricao1; // dmPrincipal.temp_extra.FieldByName('restricao_1').asString;
+                Params.ParamByName('restricao_2').value             := xRootOficial.Extra.Restricao2; // dmPrincipal.temp_extra.FieldByName('restricao_2').asString;
+                Params.ParamByName('restricao_3').value             := xRootOficial.Extra.Restricao3; // dmPrincipal.temp_extra.FieldByName('restricao_3').asString;
+                Params.ParamByName('restricao_4').value             := xRootOficial.Extra.Restricao4; // dmPrincipal.temp_extra.FieldByName('restricao_4').asString;
+                Params.ParamByName('s_especie').value               := xRootOficial.Extra.SEspecie; // dmPrincipal.temp_extra.FieldByName('s_especie').asString;
+                Params.ParamByName('segmento').value                := xRootOficial.Extra.Segmento; // dmPrincipal.temp_extra.FieldByName('segmento').asString;
+                Params.ParamByName('situacao_chassi').value         := xRootOficial.Extra.SituacaoChassi; //dmPrincipal.temp_extra.FieldByName('segmento').asString;
+                Params.ParamByName('situacao_veiculo').value        := xRootOficial.Extra.SituacaoVeiculo; // dmPrincipal.temp_extra.FieldByName('situacao_veiculo').asString;
+                Params.ParamByName('sub_segmento').value            := xRootOficial.Extra.SubSegmento; // dmPrincipal.temp_extra.FieldByName('sub_segmento').asString;
+                Params.ParamByName('terceiro_eixo').value           := xRootOficial.Extra.TerceiroEixo; // dmPrincipal.temp_extra.FieldByName('terceiro_eixo').asString;
+                Params.ParamByName('tipo_carroceria').value         := xRootOficial.Extra.TipoCarroceria; //dmPrincipal.temp_extra.FieldByName('tipo_carroceria').asString;
+                Params.ParamByName('tipo_doc_faturado').value       := xRootOficial.Extra.TipoDocFaturado; // dmPrincipal.temp_extra.FieldByName('tipo_doc_faturado').asString;
+                Params.ParamByName('tipo_doc_importadora').value    := xRootOficial.Extra.TipoDocImportadora; // dmPrincipal.temp_extra.FieldByName('tipo_doc_importadora').asString;
+                Params.ParamByName('tipo_doc_prop').value           := xRootOficial.Extra.TipoDocProp; // dmPrincipal.temp_extra.FieldByName('tipo_doc_prop').asString;
+                Params.ParamByName('tipo_veiculo').value            := xRootOficial.Extra.TipoVeiculo; //dmPrincipal.temp_extra.FieldByName('tipo_veiculo').asString;
+                Params.ParamByName('uf').value                      := xRootOficial.Extra.Uf; //dmPrincipal.temp_extra.FieldByName('uf').asString;
+                Params.ParamByName('uf_faturado').value             := xRootOficial.Extra.UfFaturado; // dmPrincipal.temp_extra.FieldByName('uf_faturado').asString;
+                Params.ParamByName('uf_placa').value                := xRootOficial.Extra.UfPlaca; // dmPrincipal.temp_extra.FieldByName('uf_placa').asString;
+                Params.ParamByName('unidade_local_srf').value       := xRootOficial.Extra.UnidadeLocalSrf; // dmPrincipal.temp_extra.FieldByName('unidade_local_srf').asString;
+              End
+            else
+              Begin
+                Params.ParamByName('id_placa').AsInteger            := id.ToInteger;
+                Params.ParamByName('ano_fabricacao').value          := Copy(xRootStandBy.Data.Veiculo.Ano,1,4); //dmPrincipal.temp_extra.FieldByName('ano_fabricacao').asString;
+                Params.ParamByName('ano_modelo').value              := Copy(xRootStandBy.Data.Veiculo.Ano,6,4); //dmPrincipal.temp_extra.FieldByName('ano_modelo').asString;
+                Params.ParamByName('caixa_cambio').value            := xRootStandBy.Data.Veiculo.CaixaCambio; //dmPrincipal.temp_extra.FieldByName('caixa_cambio').asString;
+                Params.ParamByName('cap_maxima_tracao').value       := ''; // dmPrincipal.temp_extra.FieldByName('cap_maxima_tracao').asString;
+                Params.ParamByName('carroceria').value              := xRootStandBy.Data.Veiculo.Carroceria; //dmPrincipal.temp_extra.FieldByName('carroceria').asString;
+                Params.ParamByName('chassi').value                  := xRootStandBy.Data.Veiculo.Chassi; //dmPrincipal.temp_extra.FieldByName('chassi').asString;
+                Params.ParamByName('cilindradas').value             := xRootStandBy.Data.Veiculo.Cilindradas; //dmPrincipal.temp_extra.FieldByName('cilindradas').asString;
+                Params.ParamByName('combustivel').value             := xRootStandBy.Data.Veiculo.Combustivel; //dmPrincipal.temp_extra.FieldByName('combustivel').asString;
+                Params.ParamByName('di').value                      := ''; //dmPrincipal.temp_extra.FieldByName('di').asString;
+                Params.ParamByName('eixo_traseiro_dif').value       := xRootStandBy.Data.Veiculo.EixoTraseiroDif;//dmPrincipal.temp_extra.FieldByName('eixo_traseiro_dif').asString;
+                Params.ParamByName('eixos').value                   := xRootStandBy.Data.Veiculo.QuantidadeDeEixos; //dmPrincipal.temp_extra.FieldByName('eixos').asString;
+                Params.ParamByName('especie').value                 := ''; //dmPrincipal.temp_extra.FieldByName('especie').asString;
+                Params.ParamByName('faturado').value                := ''; // dmPrincipal.temp_extra.FieldByName('faturado').asString;
+                Params.ParamByName('grupo').value                   := '';// dmPrincipal.temp_extra.FieldByName('grupo').asString;
+                Params.ParamByName('limite_restricao_trib').value   := ''; // dmPrincipal.temp_extra.FieldByName('limite_restricao_trib').asString;
+                Params.ParamByName('linha').value                   := ''; // dmPrincipal.temp_extra.FieldByName('linha').asString;
+                Params.ParamByName('media_preco').value             := ''; // dmPrincipal.temp_extra.FieldByName('media_preco').asString;
+                Params.ParamByName('modelo').value                  := xRootStandBy.Data.Veiculo.MarcaModelo; //dmPrincipal.temp_extra.FieldByName('modelo').asString;
+                Params.ParamByName('motor').value                   := xRootStandBy.Data.Veiculo.NMotor; //dmPrincipal.temp_extra.FieldByName('motor').asString;
+                Params.ParamByName('municipio').value               := xRootStandBy.Data.Veiculo.Municipio; //dmPrincipal.temp_extra.FieldByName('municipio').asString;
+                Params.ParamByName('nacionalidade').value           := xRootStandBy.Data.Veiculo.Procedencia; //dmPrincipal.temp_extra.FieldByName('nacionalidade').asString;
+                Params.ParamByName('peso_bruto_total').value        := xRootStandBy.Data.Veiculo.CapacidadeDeCarga; //dmPrincipal.temp_extra.FieldByName('peso_bruto_total').asString;
+                Params.ParamByName('placa').value                   := xRootStandBy.Data.Veiculo.Placa; //dmPrincipal.temp_extra.FieldByName('placa').asString;
+                Params.ParamByName('placa_modelo_antigo').value     := xRootStandBy.Data.Veiculo.Placa; // dmPrincipal.temp_extra.FieldByName('placa_modelo_antigo').asString;
+                Params.ParamByName('placa_modelo_novo').value       := FPlacaSecundaria; // dmPrincipal.temp_extra.FieldByName('placa_modelo_novo').asString;
+                Params.ParamByName('registro_di').value             := ''; // dmPrincipal.temp_extra.FieldByName('registro_di').asString;
+                Params.ParamByName('renavam').value                 := ''; // dmPrincipal.temp_extra.FieldByName('renavam').asString;
+                Params.ParamByName('restricao_1').value             := ''; // dmPrincipal.temp_extra.FieldByName('restricao_1').asString;
+                Params.ParamByName('restricao_2').value             := ''; // dmPrincipal.temp_extra.FieldByName('restricao_2').asString;
+                Params.ParamByName('restricao_3').value             := ''; // dmPrincipal.temp_extra.FieldByName('restricao_3').asString;
+                Params.ParamByName('restricao_4').value             := ''; // dmPrincipal.temp_extra.FieldByName('restricao_4').asString;
+                Params.ParamByName('s_especie').value               := ''; // dmPrincipal.temp_extra.FieldByName('s_especie').asString;
+                Params.ParamByName('segmento').value                := ''; // dmPrincipal.temp_extra.FieldByName('segmento').asString;
+                Params.ParamByName('situacao_chassi').value         := xRootStandBy.Data.Veiculo.SituacaoDoChassi; //dmPrincipal.temp_extra.FieldByName('segmento').asString;
+                Params.ParamByName('situacao_veiculo').value        := ''; // dmPrincipal.temp_extra.FieldByName('situacao_veiculo').asString;
+                Params.ParamByName('sub_segmento').value            := ''; // dmPrincipal.temp_extra.FieldByName('sub_segmento').asString;
+                Params.ParamByName('terceiro_eixo').value           := ''; // dmPrincipal.temp_extra.FieldByName('terceiro_eixo').asString;
+                Params.ParamByName('tipo_carroceria').value         := xRootStandBy.Data.Veiculo.TipoCarroceria; //dmPrincipal.temp_extra.FieldByName('tipo_carroceria').asString;
+                Params.ParamByName('tipo_doc_faturado').value       := ''; // dmPrincipal.temp_extra.FieldByName('tipo_doc_faturado').asString;
+                Params.ParamByName('tipo_doc_importadora').value    := ''; // dmPrincipal.temp_extra.FieldByName('tipo_doc_importadora').asString;
+                Params.ParamByName('tipo_doc_prop').value           := ''; // dmPrincipal.temp_extra.FieldByName('tipo_doc_prop').asString;
+                Params.ParamByName('tipo_veiculo').value            := xRootStandBy.Data.Veiculo.TipoDeVeiculo; //dmPrincipal.temp_extra.FieldByName('tipo_veiculo').asString;
+                Params.ParamByName('uf').value                      := xRootStandBy.Data.Veiculo.Uf; //dmPrincipal.temp_extra.FieldByName('uf').asString;
+                Params.ParamByName('uf_faturado').value             := ''; // dmPrincipal.temp_extra.FieldByName('uf_faturado').asString;
+                Params.ParamByName('uf_placa').value                := ''; // dmPrincipal.temp_extra.FieldByName('uf_placa').asString;
+                Params.ParamByName('unidade_local_srf').value       := ''; // dmPrincipal.temp_extra.FieldByName('unidade_local_srf').asString;
+
+              End;
+          ExecSQL;
+        End;
+    Except
+      {$WARNINGS OFF}
+      TRegisterLog.i.Log('Erro: Inserir'+ xRootOficial.Placa +' [TModelQuerys.AddPlacasExtra]');
+      {$WARNINGS ON}
+    end;
+End;
+
+function TModelQuerys.AddPlacasDados(xRootOficial: TRootOficial; xRootStandBy: TRootStandBy; id: string): Boolean;
+Begin
+  try
+    Result := true;
+    //Tabela Fipe Dados
+
+    for var I := 0 to Pred(xRootOficial.Fipe.Dados.Count) do
+      Begin
+        with FQry do
+          Begin
+            Close;
+            SQL.Clear;
+            SQL.Add('insert into tab_placas_fipe_dados ');
+            SQL.Add('(id_placa, codigo_fipe, codigo_marca, codigo_modelo, score, texto_modelo)');
+            SQL.Add('values');
+            SQL.Add('(:id_placa, :codigo_fipe, :codigo_marca, :codigo_modelo, :score, :texto_modelo)');
+
+            if FOrigem = 'Oficial' then
+              Begin
+                Params.ParamByName('id_placa').AsInteger           := id.ToInteger;
+                Params.ParamByName('codigo_fipe').value            := xRootOficial.Fipe.Dados[i].CodigoFipe; // dmPrincipal.temp_dados.FieldByName('codigo_fipe').asString;
+                Params.ParamByName('codigo_marca').value           := xRootOficial.Fipe.Dados[i].CodigoMarca; // dmPrincipal.temp_dados.FieldByName('codigo_marca').asString;
+                Params.ParamByName('codigo_modelo').value          := xRootOficial.Fipe.Dados[i].CodigoModelo; // dmPrincipal.temp_dados.FieldByName('codigo_modelo').asString;
+                Params.ParamByName('score').value                  := xRootOficial.Fipe.Dados[i].Score.ToString; // dmPrincipal.temp_dados.FieldByName('score').asString;
+                Params.ParamByName('texto_modelo').value           := xRootOficial.Fipe.Dados[i].TextoModelo; // dmPrincipal.temp_dados.FieldByName('texto_modelo').asString;
+
+                if xRootOficial.Fipe.Dados[i].CodigoFipe <> '' then
+                  ExecSQL;
+              End
+            else
+              Begin
+                Params.ParamByName('id_placa').AsInteger           := id.ToInteger;
+                Params.ParamByName('codigo_fipe').value            := xRootStandBy.Data.Fipes[i].Codigo; // dmPrincipal.temp_dados.FieldByName('codigo_fipe').asString;
+                Params.ParamByName('codigo_marca').value           := ''; // dmPrincipal.temp_dados.FieldByName('codigo_marca').asString;
+                Params.ParamByName('codigo_modelo').value          := ''; // dmPrincipal.temp_dados.FieldByName('codigo_modelo').asString;
+                Params.ParamByName('score').value                  := ''; // dmPrincipal.temp_dados.FieldByName('score').asString;
+                Params.ParamByName('texto_modelo').value           := xRootStandBy.Data.Fipes[i].MarcaModelo; // dmPrincipal.temp_dados.FieldByName('texto_modelo').asString;
+
+                if xRootStandBy.Data.Fipes[i].Codigo <> '' then
+                  ExecSQL;
+              End;
+          End;
+
+      End;
+  Except
+    TRegisterLog.i.Log('Erro: Inserir'+ xRootOficial.Placa +' [TModelQuerys.AddPlacasDados]');
+    Result := false;
+  end;
+End;
+
+{$endregion}
+
+{$region 'Função Add Log de Diferença entre Campos'}
+{
+function TModelQuerys.AddLogPlacas(AnoFabricacao, CaixaCambio, CapacidadeCarga, Carroceria,
+  CilindradasCm3, Cmt, Combustivel, Cor, EixoTraseiroDiferencial,
+  MarcaModelo, Municipio, NumeroChassi, NumeroMotor, Pbt, Placa,
+  PotenciaCavalos, Procedencia, QuantidadeEixos, QuantidadePassageiros,
+  SituacaoChassi, TipoCarroceria, TipoMontagem, TipoVeiculo,
+  Uf: String): boolean;
+Begin
+  try
+
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('insert into tab_log_compare');
+        SQL.Add('(AnoFabricacao, CaixaCambio, CapacidadeCarga, Carroceria, CilindradasCm3,');
+        SQL.Add('Cmt, Combustivel, Cor, eixotraseirodiferencial, MarcaModelo, Municipio,');
+        SQL.Add('NumeroChassi, NumeroMotor, Pbt, Placa, PotenciaCavalos, Procedencia, QuantidadeEixos,');
+        SQL.Add('QuantidadePassageiros, SituacaoChassi, TipoCarroceria, TipoMontagem, TipoVeiculo, Uf)');
+        SQL.Add('values');
+        SQL.Add('(:AnoFabricacao, :CaixaCambio, :CapacidadeCarga, :Carroceria, :CilindradasCm3,');
+        SQL.Add(':Cmt, :Combustivel, :Cor, :eixotraseirodiferencial, :MarcaModelo, :Municipio,');
+        SQL.Add(':NumeroChassi, :NumeroMotor, :Pbt, :Placa, :PotenciaCavalos, :Procedencia, :QuantidadeEixos,');
+        SQL.Add(':QuantidadePassageiros, :SituacaoChassi, :TipoCarroceria, :TipoMontagem, :TipoVeiculo, :Uf)');
+
+        Params.ParamByName('AnoFabricacao').value := AnoFabricacao;
+        Params.ParamByName('CaixaCambio').value := CaixaCambio;
+        Params.ParamByName('CapacidadeCarga').value := CapacidadeCarga;
+        Params.ParamByName('Carroceria').value := Carroceria;
+        Params.ParamByName('CilindradasCm3').value := CilindradasCm3;
+        Params.ParamByName('Cmt').value := Cmt;
+        Params.ParamByName('Combustivel').value := Combustivel;
+        Params.ParamByName('Cor').value := Cor;
+        Params.ParamByName('eixotraseirodiferencial').value := EixoTraseiroDiferencial;
+        Params.ParamByName('MarcaModelo').value := MarcaModelo;
+        Params.ParamByName('Municipio').value := Municipio;
+        Params.ParamByName('NumeroChassi').value := NumeroChassi;
+        Params.ParamByName('NumeroMotor').value := NumeroMotor;
+        Params.ParamByName('Pbt').value := Pbt;
+        Params.ParamByName('Placa').value := Placa;
+        Params.ParamByName('PotenciaCavalos').value := PotenciaCavalos;
+        Params.ParamByName('Procedencia').value := Procedencia;
+        Params.ParamByName('QuantidadeEixos').value := QuantidadeEixos;
+        Params.ParamByName('QuantidadePassageiros').value := QuantidadePassageiros;
+        Params.ParamByName('SituacaoChassi').value := SituacaoChassi;
+        Params.ParamByName('TipoCarroceria').value := TipoCarroceria;
+        Params.ParamByName('TipoMontagem').value := TipoMontagem;
+        Params.ParamByName('TipoVeiculo').value := TipoVeiculo;
+        Params.ParamByName('Uf').value := Uf;
+
+        ExecSQL;
+
+        Result := true;
+
+      End;
+
+  Except
+    Result := false;
+
+  end;
+End;
+}
+{$endregion}
+
+{$region 'Função para Comparar campos na Table'}
+{
+procedure TModelQuerys.GetAll;
+Var qryCompare      : TFDQuery;
+begin
+    with FQry do
+      Begin
+        Close;
+        SQL.Clear;
+        SQL.Add('SELECT * FROM tab_veiculos');
+        SQL.Add('order by 1 asc');
+        Open;
+
+        if FQry.RecordCount = 0 then
+          exit
+        else
+          Begin
+            qryCompare := TFDQuery.Create(nil);
+            qryCompare.Connection := TFDConnection(FParent.Conexao);
+            while not qry.Eof  do
+              Begin
+                with qryCompare do
+                  Begin
+                    Close;
+                    SQL.Clear;
+                    SQL.Add('SELECT t1.placa, t1.ano_fabricacao, t1.ano_modelo, t1.combustivel, t2.cor, t2.marca, t2.modelo,');
+                    SQL.Add('t1.municipio, t1.chassis, t1.motor, t1.eixos, t1.tipo_veiculo, t1.uf');
+                    SQL.Add('from tab_placas_extra t1');
+                    SQL.Add('INNER JOIN tab_placas t2 ON t2.id = t1.id_placa');
+                    SQL.Add('WHERE (t2.placa LIKE :placa)');
+                      Params.ParamByName('placa').AsString  := '%' + qry.FieldByName('placa').AsString + '%';
+                    Open;
+
+                    if qryCompare.RecordCount = 0 then
+                      dmPrincipal.LogPlacas('Placa :'+ qry.FieldByName('placa').AsString +' não encontrada')
+                    else
+                      Begin
+                        LimparString;
+
+                        //Validando diferença campo de Fabricação
+                        if (qry.FieldByName('anofabricacao').AsString) <>
+                           (qryCompare.FieldByName('ano_fabricacao').AsString + '/' + qryCompare.FieldByName('ano_modelo').AsString)
+                        then
+                          AnoFabricacao   := 'old: ' + qry.FieldByName('anofabricacao').AsString + '| new: '+ qryCompare.FieldByName('ano_fabricacao').AsString + '/' + qryCompare.FieldByName('ano_modelo').AsString;
+
+                        CaixaCambio       := '';
+                        CapacidadeCarga   := '';
+                        Carroceria        := '';
+                        CilindradasCm3    := '';
+                        Cmt               := '';
+
+                        //Validando diferença campo de Fabricação
+                        if qry.FieldByName('combustivel').AsString <>
+                           qryCompare.FieldByName('combustivel').AsString
+                        then
+                          Combustivel     := 'old: ' + qry.FieldByName('combustivel').AsString + '| new: '+ qryCompare.FieldByName('combustivel').AsString;
+
+                        //Validando diferença campo de Cor
+                        if qry.FieldByName('cor').AsString <>
+                           qryCompare.FieldByName('cor').AsString
+                        then
+                          Cor             := 'old: ' + qry.FieldByName('cor').AsString + '| new: '+ qryCompare.FieldByName('cor').AsString;
+
+                        EixoTraseiroDiferencial := '';
+
+                        //Validando diferença campo de Marca Modelo
+                        if (qry.FieldByName('marcamodelo').AsString) <>
+                           (qryCompare.FieldByName('marca').AsString + ' ' +  qryCompare.FieldByName('modelo').AsString)
+                        then
+                          MarcaModelo     := 'old: ' + qry.FieldByName('marcamodelo').AsString + '| new: '+ qryCompare.FieldByName('marca').AsString + ' ' + qryCompare.FieldByName('modelo').AsString;
+
+                        //Validando diferença campo de Municipio
+                        if UpperCase(qry.FieldByName('municipio').AsString) <>
+                           qryCompare.FieldByName('municipio').AsString
+                        then
+                          Municipio       := 'old: ' + qry.FieldByName('municipio').AsString + '| new: '+ qryCompare.FieldByName('municipio').AsString;
+
+                        //Validando diferença campo de Numero do Chassi
+                        if qry.FieldByName('numerochassi').AsString <>
+                           qryCompare.FieldByName('chassis').AsString
+                        then
+                          NumeroChassi    := 'old: ' + qry.FieldByName('numerochassi').AsString + '| new: '+ qryCompare.FieldByName('chassis').AsString;
+
+                        //Validando diferença campo de Numero do Motor
+                        if qry.FieldByName('numeromotor').AsString <>
+                           qryCompare.FieldByName('motor').AsString
+                        then
+                          NumeroMotor     := 'old: ' + qry.FieldByName('numeromotor').AsString + '| new: '+ qryCompare.FieldByName('motor').AsString;
+
+                        Pbt               := '';
+
+                        // Campo Placa inserindo sem comparação, devido a localição de busca
+                        Placa             := qryCompare.FieldByName('placa').AsString;
+
+                        PotenciaCavalos   := '';
+                        Procedencia       := '';
+
+                        //Validando diferença campo de Qtde Eixos
+                        if qry.FieldByName('quantidadeeixos').AsString <>
+                           qryCompare.FieldByName('eixos').AsString
+                        then
+                          QuantidadeEixos := 'old: ' + qry.FieldByName('quantidadeeixos').AsString + '| new: '+ qryCompare.FieldByName('eixos').AsString;
+
+                        QuantidadePassageiros := '';
+                        SituacaoChassi    := '';
+                        TipoCarroceria    := '';
+                        TipoMontagem      := '';
+
+                        //Validando diferença campo tipoveiculo
+                        if qry.FieldByName('tipoveiculo').AsString <>
+                           qryCompare.FieldByName('tipo_veiculo').AsString
+                        then
+                          TipoVeiculo := 'old: ' + qry.FieldByName('tipoveiculo').AsString + '| new: '+ qryCompare.FieldByName('tipo_veiculo').AsString;
+
+                        //Validando diferença campo UF
+                        if qry.FieldByName('uf').AsString <>
+                           qryCompare.FieldByName('uf').AsString
+                        then
+                          Uf := 'old: ' + qry.FieldByName('uf').AsString + '| new: '+ qryCompare.FieldByName('uf').AsString;
+
+
+                       //inserindo na tabela de LogCompare
+                        if not
+                          dmPrincipal.AddLogPlacas(
+                                        AnoFabricacao,
+                                        CaixaCambio,
+                                        CapacidadeCarga,
+                                        Carroceria,
+                                        CilindradasCm3,
+                                        Cmt,
+                                        Combustivel,
+                                        Cor,
+                                        EixoTraseiroDiferencial,
+                                        MarcaModelo,
+                                        Municipio,
+                                        NumeroChassi,
+                                        NumeroMotor,
+                                        Pbt,
+                                        Placa,
+                                        PotenciaCavalos,
+                                        Procedencia,
+                                        QuantidadeEixos,
+                                        QuantidadePassageiros,
+                                        SituacaoChassi,
+                                        TipoCarroceria,
+                                        TipoMontagem,
+                                        TipoVeiculo,
+                                        Uf
+                                        )
+                        then
+                          dmPrincipal.LogPlacas('log da placa :'+ Placa +' não inserida na tabela erro no insert')
+
+                      End;
+                  End;
+                qry.Next;
+              End;
+          End;
+      qryCompare.free;
+    end;
+end; }
+{$endregion}
+
+
+end.

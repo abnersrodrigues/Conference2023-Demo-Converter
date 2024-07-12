@@ -1,0 +1,107 @@
+unit GRV.APIPlacas.Model.Conexao;
+
+interface
+
+uses
+  System.SysUtils, System.Classes, FireDAC.Stan.Intf, FireDAC.Stan.Option,
+  FireDAC.Stan.Error, FireDAC.UI.Intf, FireDAC.Phys.Intf, FireDAC.Stan.Def, FireDAC.Stan.Pool,
+  FireDAC.Stan.Async, FireDAC.Phys, FireDAC.VCLUI.Wait, Data.DB,
+  FireDAC.Comp.Client,
+  FireDAC.Phys.SQLiteDef, FireDAC.Stan.ExprFuncs, FireDAC.Comp.UI,
+  FireDAC.Stan.Param, FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.Comp.DataSet,
+  FireDAC.Stan.StorageBin, System.IniFiles, FireDAC.Phys.PGDef, FireDAC.Phys.PG,
+  GRV.APIPlacas.Interfaces, System.JSON;
+
+Type
+
+  TModelConexao = class(TInterfacedObject, iConexao)
+
+    private
+
+      FConexao            : TFDConnection;
+      FDPhysPgDriverLink  : TFDPhysPgDriverLink;
+
+    public
+
+      constructor Create;
+      destructor Destroy; override;
+
+      class function New: iConexao;
+
+      function Conexao : TCustomConnection;
+      function TesteConexaoBanco: Boolean;
+
+  end;
+
+implementation
+
+{ TModelConexao }
+
+uses GRV.APIPlacas.Model.Principal, GRV.APIPlacas.Controller.ConfigINI,
+  Vcl.Forms;
+
+function TModelConexao.Conexao: TCustomConnection;
+begin
+  Result := FConexao;
+end;
+
+constructor TModelConexao.Create;
+Var
+  CaminhoDll : String;
+begin
+  if not Assigned(dmPrincipal) then
+    Begin
+      Application.CreateForm(TdmPrincipal, dmPrincipal);
+    End;
+
+  FConexao := TFDConnection.Create(nil);
+  FConexao.ResourceOptions.SilentMode := true;
+
+  with FConexao do
+    Begin
+      Connected                     := false;
+
+      Params.Values['DriverID']     := 'PG';
+      Params.Values['Database']     := dmPrincipal.Database;
+      Params.Values['Password']     := dmPrincipal.Password;
+      Params.Values['Port']         := dmPrincipal.Port.ToString;
+      Params.Values['User_Name']    := dmPrincipal.User_Name;
+      Params.Values['Server']       := dmPrincipal.Server;
+    End;
+
+
+  {$IFDEF WIN32}
+    CaminhoDll := dmPrincipal.DllConexao32x;
+  {$ENDIF$}
+
+  {$IFDEF WIN64}
+    CaminhoDll := dmPrincipal.DllConexao64x;
+  {$ENDIF}
+
+  FDPhysPgDriverLink := TFDPhysPgDriverLink.Create(nil);
+  FDPhysPgDriverLink.VendorLib      := CaminhoDll;
+
+  FConexao.Connected := true;
+end;
+
+destructor TModelConexao.Destroy;
+begin
+  FreeAndNil(FDPhysPgDriverLink);
+  FreeAndNil(FConexao);
+  inherited;
+end;
+
+class function TModelConexao.New: iConexao;
+begin
+  Result := Self.Create;
+end;
+
+function TModelConexao.TesteConexaoBanco:Boolean;
+BEgin
+  if FConexao.Connected then
+    Result := true
+  else
+    Result := false;
+End;
+
+end.

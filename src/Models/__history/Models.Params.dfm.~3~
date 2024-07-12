@@ -1,0 +1,6 @@
+object DMParams: TDMParams
+  OldCreateOrder = False
+  OnCreate = DataModuleCreate
+  Height = 220
+  Width = 252
+end

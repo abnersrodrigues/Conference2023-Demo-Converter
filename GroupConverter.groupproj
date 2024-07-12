@@ -1,0 +1,36 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{62B8AD74-BAE4-44B1-B050-04E12749AA7E}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Conferencia2023.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="Conferencia2023">
+        <MSBuild Projects="Conferencia2023.dproj"/>
+    </Target>
+    <Target Name="Conferencia2023:Clean">
+        <MSBuild Projects="Conferencia2023.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Conferencia2023:Make">
+        <MSBuild Projects="Conferencia2023.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="Conferencia2023"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="Conferencia2023:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="Conferencia2023:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
